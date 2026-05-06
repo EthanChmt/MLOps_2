@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Environnements Python locaux
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+
+# Outils de développement
+.vscode/
+.idea/
+
+# Dossiers lourds ou inutiles pour la production
+mlruns/
+data/
+notebooks/
+reports/
+tests/
+
+# Fichiers de log locaux
+*.log
