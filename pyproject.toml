@@ -5,12 +5,20 @@ description = ""
 authors = [
     {name = "EthanChmt",email = "ethan.chaumeret@gmail.com"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<4.0"
 dependencies = [
-    "streamlit (>=1.57.0,<2.0.0)"
+    "streamlit (>=1.57.0,<2.0.0)",
+    "gradio (>=6.13.0,<7.0.0)",
+    "evidently (>=0.7.21,<0.8.0)",
+    "mlflow (>=3.12.0,<4.0.0)"
 ]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.3,<10.0.0)"
+]
