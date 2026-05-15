@@ -1,5 +1,8 @@
-Apprentissage/*
+Apprentissage/
 */Gradio.py
+reports/
+*/figures
+reports/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
