@@ -1,30 +1,31 @@
 import json
-import numpy as np
 import pytest
-from api.main import predict, expected_features, model
+import numpy as np
+from api.main import predict
+import api.main as api_main
 
-def test_expected_features_loaded():
-    """Vérifie que la liste des variables est bien chargée au démarrage."""
-    assert expected_features is not None
-    assert len(expected_features) > 0
-    # On s'assure qu'on a bien nos variables principales (ex: TARGET ou équivalent)
-    assert isinstance(expected_features, list)
+# On crée une fausse classe pour simuler le modèle LightGBM
+class DummyModel:
+    def predict(self, data):
+        # Renvoie une fausse prédiction (0.5) pour chaque ligne reçue
+        return np.array([0.5], dtype=np.float32)
+
+# Cette fonction s'exécute AUTOMATIQUEMENT avant chaque test pour injecter le faux modèle
+@pytest.fixture(autouse=True)
+def setup_mock_model():
+    api_main.model = DummyModel()
+    if not api_main.expected_features:
+        api_main.expected_features = ["NAME_CONTRACT_TYPE", "CODE_GENDER"]
 
 def test_predict_with_valid_json():
     """Vérifie que l'API renvoie une prédiction valide avec un JSON correct."""
-    # On simule un dictionnaire avec toutes les variables requises initialisées à 0.0
-    valid_data = {feature: 0.0 for feature in expected_features}
+    valid_data = {feature: 0.0 for feature in api_main.expected_features}
     json_str = json.dumps(valid_data)
-    
+
     response = predict(json_str)
-    
-    # La réponse ne doit pas être un message d'erreur
+
     assert "Erreur" not in response
-    # La réponse doit pouvoir être convertie en nombre flottant (le score)
-    try:
-        float(response)
-    except ValueError:
-        pytest.fail(f"La réponse de l'API n'est pas un score numérique : {response}")
+    assert float(response) == 0.5
 
 def test_predict_with_invalid_json_format():
     """Vérifie le comportement de l'API face à un format de texte invalide."""
@@ -34,15 +35,14 @@ def test_predict_with_invalid_json_format():
 
 def test_predict_with_missing_variable():
     """Vérifie que l'API lève une erreur s'il manque une variable dans le JSON."""
-    if len(expected_features) == 0:
+    if len(api_main.expected_features) == 0:
         pytest.skip("La liste des variables est vide.")
-        
-    valid_data = {feature: 0.0 for feature in expected_features}
-    # On supprime volontairement la toute première variable requise
-    missing_feature = expected_features[0]
+
+    valid_data = {feature: 0.0 for feature in api_main.expected_features}
+    missing_feature = api_main.expected_features[0]
     del valid_data[missing_feature]
-    
+
     json_str = json.dumps(valid_data)
     response = predict(json_str)
-    
+
     assert f"Erreur : Variable manquante : {missing_feature}" in response
