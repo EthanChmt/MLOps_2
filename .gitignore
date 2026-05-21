@@ -2,7 +2,7 @@ Apprentissage/
 */Gradio.py
 reports/
 */figures
-reports/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -54,7 +54,6 @@ coverage.xml
 .env
 .venv
 
-
 # IDEs / Editors
 .vscode/
 .idea/
@@ -78,10 +77,18 @@ Thumbs.db
 *.parquet
 *.hdf5
 *.h5
-*.pkl
-*.model
 *.pb
 *.onnx
 data/
 datasets/
 models/
+
+# --- CONFIGURATION SPECIFIQUE MLFLOW ---
+mlflow.db
+mlruns/
+mlartifacts/
+
+# --- EXCEPTION CRITIQUE POUR L'API ---
+# On bloque les .pkl globaux, MAIS on force Git à accepter le modèle embarqué dans l'API
+*.pkl
+!api/model_files/**
