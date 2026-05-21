@@ -20,16 +20,13 @@ RUN pip install "poetry==$POETRY_VERSION"
 # 5. Définition du répertoire de travail
 WORKDIR /app
 
-# 6. Installation des dépendances Python (Méthode forte)
-# 6. Installation des dépendances Python
+# 6. Installation des dépendances Python (Uniquement via pyproject.toml)
 COPY pyproject.toml ./
 RUN poetry install --no-root
 
 # 7. Copie du code source et des artefacts
 COPY api/ ./api/
 COPY src/ ./src/
-COPY model.pkl ./api/
-COPY expected_features.json ./api/
 
 # 8. Port exposé par l'API
 EXPOSE 8000
