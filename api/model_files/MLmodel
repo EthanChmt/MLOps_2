@@ -1,0 +1,22 @@
+artifact_path: file:///C:/Users/ethan/Documents/OpenClassrooms/Old/mlruns/1/models/m-f7b00c3ad06a4d709bd851d90e20c880/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.11.9
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: pickle
+    sklearn_version: 1.8.0
+mlflow_version: 3.8.1
+model_id: m-f7b00c3ad06a4d709bd851d90e20c880
+model_size_bytes: 123076
+model_uuid: m-f7b00c3ad06a4d709bd851d90e20c880
+prompts: null
+run_id: 505f3150de61449682323c83f2f17465
+utc_time_created: '2026-05-03 18:09:38.586978'
