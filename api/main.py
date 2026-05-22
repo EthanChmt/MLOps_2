@@ -32,7 +32,7 @@ try:
 except Exception as e:
     logger.error(f"Erreur lors du chargement de expected_features.json : {e}")
 
-# 5. CHARGEMENT DU MODÈLE (La fusion magique : Autonome si Docker, sinon MLflow)
+# 5. CHARGEMENT DU MODÈLE
 logger.info("Chargement du modèle...")
 try:
     if os.path.exists(LOCAL_MODEL_PATH):
@@ -63,7 +63,16 @@ def predict(input_json_str):
     for feature_name in expected_features:
         if feature_name not in input_dict:
             return f"Erreur : Variable manquante : {feature_name}"
-        ordered_values.append(input_dict[feature_name])
+            
+        value = input_dict[feature_name]
+        
+        if not isinstance(value, (int, float)):
+            return f"Erreur : La variable {feature_name} doit être un nombre."
+            
+        if value < -1000000 or value > 100000000:
+             return f"Erreur : La valeur de {feature_name} est hors des limites acceptées."
+             
+        ordered_values.append(value)
         
     try:
         input_data = np.array(ordered_values, dtype=np.float32).reshape(1, -1)
