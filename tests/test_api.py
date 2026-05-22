@@ -46,3 +46,18 @@ def test_predict_with_missing_variable():
     response = predict(json_str)
 
     assert f"Erreur : Variable manquante : {missing_feature}" in response
+
+def test_predict_with_invalid_type():
+    """Vérifie que l'API lève une erreur si une variable n'est pas un nombre."""
+    if not api_main.expected_features:
+        pytest.skip("La liste des variables est vide.")
+
+    valid_data = {feature: 0.0 for feature in api_main.expected_features}
+    
+    feature_to_break = api_main.expected_features[0]
+    valid_data[feature_to_break] = "texte invalide"
+
+    json_str = json.dumps(valid_data)
+    response = predict(json_str)
+
+    assert f"Erreur : La variable {feature_to_break} doit être un nombre." in response    
