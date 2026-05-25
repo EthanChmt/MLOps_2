@@ -80,4 +80,4 @@ def test_predict_rejects_invalid_file_type():
     )
     
     assert response.status_code == 400
-    assert "Un fichier CSV est requis" in response.json()["detail"]
+    assert "Veuillez fournir un fichier CSV." in response.json()["detail"]
