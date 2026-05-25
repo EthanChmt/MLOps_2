@@ -1,63 +1,83 @@
-import json
+import io
 import pytest
+import pandas as pd
 import numpy as np
-from api.main import predict
+from fastapi.testclient import TestClient
+
+# Import de l'application FastAPI
+from api.main import app
 import api.main as api_main
 
-# On crée une fausse classe pour simuler le modèle LightGBM
+# --- 1. MOCK DE L'ENVIRONNEMENT ---
+# On crée un faux modèle pour ne pas dépendre du vrai .pkl lourd pendant les tests
 class DummyModel:
-    def predict(self, data):
-        # Renvoie une fausse prédiction (0.5) pour chaque ligne reçue
-        return np.array([0.5], dtype=np.float32)
+    def predict(self, df):
+        # Renvoie une probabilité de 0.5 pour chaque ligne
+        return np.full(len(df), 0.5)
 
-# Cette fonction s'exécute AUTOMATIQUEMENT avant chaque test pour injecter le faux modèle
+# Cette fonction s'exécute automatiquement avant chaque test
 @pytest.fixture(autouse=True)
-def setup_mock_model():
+def setup_mock_env():
     api_main.model = DummyModel()
-    if not api_main.expected_features:
-        api_main.expected_features = ["NAME_CONTRACT_TYPE", "CODE_GENDER"]
+    # On simule ce que devrait contenir expected_features.json après ton EDA
+    api_main.expected_features = ['CREDIT_INCOME_RATIO', 'AMT_CREDIT', 'CODE_GENDER_F']
 
-def test_predict_with_valid_json():
-    """Vérifie que l'API renvoie une prédiction valide avec un JSON correct."""
-    valid_data = {feature: 0.0 for feature in api_main.expected_features}
-    json_str = json.dumps(valid_data)
+client = TestClient(app)
 
-    response = predict(json_str)
+# --- 2. TESTS DES ROUTES ---
 
-    assert "Erreur" not in response
-    assert float(response) == 0.5
+def test_health_check_ok():
+    """Vérifie que l'API est bien en ligne."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
-def test_predict_with_invalid_json_format():
-    """Vérifie le comportement de l'API face à un format de texte invalide."""
-    bad_input = "ceci n'est pas un json"
-    response = predict(bad_input)
-    assert "Erreur : Le texte fourni n'est pas un JSON valide." in response
+def test_health_check_fails_if_no_model():
+    """Vérifie que l'API signale si le modèle est indisponible."""
+    api_main.model = None
+    response = client.get("/health")
+    assert response.status_code == 503
 
-def test_predict_with_missing_variable():
-    """Vérifie que l'API lève une erreur s'il manque une variable dans le JSON."""
-    if len(api_main.expected_features) == 0:
-        pytest.skip("La liste des variables est vide.")
-
-    valid_data = {feature: 0.0 for feature in api_main.expected_features}
-    missing_feature = api_main.expected_features[0]
-    del valid_data[missing_feature]
-
-    json_str = json.dumps(valid_data)
-    response = predict(json_str)
-
-    assert f"Erreur : Variable manquante : {missing_feature}" in response
-
-def test_predict_with_invalid_type():
-    """Vérifie que l'API lève une erreur si une variable n'est pas un nombre."""
-    if not api_main.expected_features:
-        pytest.skip("La liste des variables est vide.")
-
-    valid_data = {feature: 0.0 for feature in api_main.expected_features}
+def test_predict_with_valid_csv():
+    """Vérifie que le Feature Engineering et la prédiction fonctionnent avec un CSV parfait."""
+    # Fichier brut (le client envoie ça) : il contient les colonnes pour calculer le ratio, et le sexe brut
+    csv_content = "AMT_CREDIT,AMT_INCOME_TOTAL,CODE_GENDER\n2000,1000,F\n"
+    file_like = io.BytesIO(csv_content.encode('utf-8'))
     
-    feature_to_break = api_main.expected_features[0]
-    valid_data[feature_to_break] = "texte invalide"
+    response = client.post(
+        "/predict",
+        files={"file": ("donnees_client.csv", file_like, "text/csv")}
+    )
+    
+    # L'API a dû calculer CREDIT_INCOME_RATIO, faire le get_dummies (CODE_GENDER_F), 
+    # valider les 3 expected_features et prédire 0.5
+    assert response.status_code == 200
+    assert response.json() == {"predictions": [0.5]}
 
-    json_str = json.dumps(valid_data)
-    response = predict(json_str)
+def test_predict_rejects_missing_columns():
+    """Vérifie que l'API bloque strictement s'il manque des données pour l'EDA."""
+    # Il manque AMT_INCOME_TOTAL. Le ratio ne pourra pas être calculé.
+    csv_content = "AMT_CREDIT,CODE_GENDER\n2000,F\n"
+    file_like = io.BytesIO(csv_content.encode('utf-8'))
+    
+    response = client.post(
+        "/predict",
+        files={"file": ("donnees_client.csv", file_like, "text/csv")}
+    )
+    
+    # L'API doit bloquer avec notre erreur 400
+    assert response.status_code == 400
+    assert "Erreur de format de données" in response.json()["detail"]
+    assert "CREDIT_INCOME_RATIO" in response.json()["detail"]
 
-    assert f"Erreur : La variable {feature_to_break} doit être un nombre." in response    
+def test_predict_rejects_invalid_file_type():
+    """Vérifie le rejet des fichiers non-CSV."""
+    file_like = io.BytesIO(b"Ceci est un fichier texte")
+    
+    response = client.post(
+        "/predict",
+        files={"file": ("document.txt", file_like, "text/plain")}
+    )
+    
+    assert response.status_code == 400
+    assert "Un fichier CSV est requis" in response.json()["detail"]

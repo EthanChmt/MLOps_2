@@ -91,4 +91,3 @@ mlartifacts/
 # --- EXCEPTION CRITIQUE POUR L'API ---
 # On bloque les .pkl globaux, MAIS on force Git à accepter le modèle embarqué dans l'API
 *.pkl
-!api/model_files/**

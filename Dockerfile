@@ -29,7 +29,8 @@ COPY api/ ./api/
 COPY src/ ./src/
 
 # 8. Port exposé par l'API
-EXPOSE 8000
+EXPOSE 7860
 
 # 9. Commande de lancement (Gradio)
-CMD ["python", "api/main.py"]
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7860"]
