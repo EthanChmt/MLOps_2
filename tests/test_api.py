@@ -54,7 +54,6 @@ def test_predict_with_valid_csv():
 
 def test_predict_rejects_missing_columns():
     """Vérifie que l'API bloque strictement s'il manque des données pour l'EDA."""
-    # Il manque AMT_INCOME_TOTAL et d'autres.
     csv_content = "AMT_CREDIT,CODE_GENDER\n2000,F\n"
     file_like = io.BytesIO(csv_content.encode('utf-8'))
 
@@ -63,18 +62,18 @@ def test_predict_rejects_missing_columns():
         files={"file": ("donnees_client.csv", file_like, "text/csv")}
     )
 
-    # L'API doit bloquer avec notre erreur 400
     assert response.status_code == 400
-    # On vérifie la nouvelle phrase d'erreur exacte de l'API
-    assert "Fichier invalide. Il manque ces colonnes essentielles" in response.json()["detail"]
+    assert "Colonnes manquantes détectées" in response.json()["detail"]
+
+
 def test_predict_rejects_invalid_file_type():
     """Vérifie le rejet des fichiers non-CSV."""
     file_like = io.BytesIO(b"Ceci est un fichier texte")
-    
+
     response = client.post(
         "/predict",
         files={"file": ("document.txt", file_like, "text/plain")}
     )
-    
+
     assert response.status_code == 400
-    assert "Veuillez fournir un fichier CSV." in response.json()["detail"]
+    assert "Fichier CSV requis." in response.json()["detail"]
