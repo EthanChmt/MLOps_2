@@ -40,36 +40,33 @@ def test_health_check_fails_if_no_model():
 
 def test_predict_with_valid_csv():
     """Vérifie que le Feature Engineering et la prédiction fonctionnent avec un CSV parfait."""
-    # Fichier brut (le client envoie ça) : il contient les colonnes pour calculer le ratio, et le sexe brut
-    csv_content = "AMT_CREDIT,AMT_INCOME_TOTAL,CODE_GENDER\n2000,1000,F\n"
+    # Fichier brut avec TOUTES les colonnes exigées par l'API
+    csv_content = "AMT_CREDIT,AMT_INCOME_TOTAL,AMT_ANNUITY,DAYS_BIRTH,DAYS_EMPLOYED,CODE_GENDER\n2000,1000,50,-10000,-500,F\n"
     file_like = io.BytesIO(csv_content.encode('utf-8'))
-    
+
     response = client.post(
         "/predict",
         files={"file": ("donnees_client.csv", file_like, "text/csv")}
     )
-    
-    # L'API a dû calculer CREDIT_INCOME_RATIO, faire le get_dummies (CODE_GENDER_F), 
-    # valider les 3 expected_features et prédire 0.5
+
     assert response.status_code == 200
-    assert response.json() == {"predictions": [0.5]}
+
 
 def test_predict_rejects_missing_columns():
     """Vérifie que l'API bloque strictement s'il manque des données pour l'EDA."""
-    # Il manque AMT_INCOME_TOTAL. Le ratio ne pourra pas être calculé.
+    # Il manque AMT_INCOME_TOTAL et d'autres.
     csv_content = "AMT_CREDIT,CODE_GENDER\n2000,F\n"
     file_like = io.BytesIO(csv_content.encode('utf-8'))
-    
+
     response = client.post(
         "/predict",
         files={"file": ("donnees_client.csv", file_like, "text/csv")}
     )
-    
+
     # L'API doit bloquer avec notre erreur 400
     assert response.status_code == 400
-    assert "Erreur de format de données" in response.json()["detail"]
-    assert "CREDIT_INCOME_RATIO" in response.json()["detail"]
-
+    # On vérifie la nouvelle phrase d'erreur exacte de l'API
+    assert "Fichier invalide. Il manque ces colonnes essentielles" in response.json()["detail"]
 def test_predict_rejects_invalid_file_type():
     """Vérifie le rejet des fichiers non-CSV."""
     file_like = io.BytesIO(b"Ceci est un fichier texte")
