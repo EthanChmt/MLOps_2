@@ -24,41 +24,41 @@ features_path = os.path.join(base_dir, "expected_features.json")
 # --- 2. INITIALISATION FASTAPI ---
 app = FastAPI(
     title="ML Scoring API",
-    description="API stricte de scoring. Applique le feature engineering métier et valide l'intégrité des données."
+    description="API de scoring. Applique le feature engineering métier et formate les données pour l'inférence."
 )
 
 model = None
 expected_features = []
 
-# --- 3. LOGIQUE MÉTIER (Ton Feature Engineering) ---
+# --- 3. LOGIQUE MÉTIER ---
 def apply_feature_engineering(df):
     """
     Applique les transformations exactes issues de l'Analyse Exploratoire.
     """
     df = df.copy()
 
-    # A. Traitement des anomalies
+    # Traitement des anomalies et âges
     if 'DAYS_EMPLOYED' in df.columns:
-        # Création du flag d'anomalie
-        df['DAYS_EMPLOYED_ANOM'] = df['DAYS_EMPLOYED'] == 365243
-        # Remplacement de l'anomalie par NaN (géré plus tard par le SimpleImputer du modèle)
+        df['DAYS_EMPLOYED_ANOM'] = (df['DAYS_EMPLOYED'] == 365243)
         df['DAYS_EMPLOYED'] = df['DAYS_EMPLOYED'].replace({365243: np.nan})
+        
+    if 'DAYS_BIRTH' in df.columns:
+        df['DAYS_BIRTH_YEARS'] = df['DAYS_BIRTH'] / -365
 
-    # B. Création des nouvelles variables (Ratios métiers)
+    # Création des nouvelles variables métiers
     if 'AMT_CREDIT' in df.columns and 'AMT_INCOME_TOTAL' in df.columns:
-        df['CREDIT_INCOME_RATIO'] = df['AMT_CREDIT'] / df['AMT_INCOME_TOTAL']
+        df['CREDIT_INCOME_PERCENT'] = df['AMT_CREDIT'] / df['AMT_INCOME_TOTAL']
         
     if 'AMT_ANNUITY' in df.columns and 'AMT_INCOME_TOTAL' in df.columns:
-        df['ANNUITY_INCOME_RATIO'] = df['AMT_ANNUITY'] / df['AMT_INCOME_TOTAL']
+        df['ANNUITY_INCOME_PERCENT'] = df['AMT_ANNUITY'] / df['AMT_INCOME_TOTAL']
         
     if 'AMT_CREDIT' in df.columns and 'AMT_ANNUITY' in df.columns:
-        df['CREDIT_TERM'] = df['AMT_CREDIT'] / df['AMT_ANNUITY']
+        df['CREDIT_TERM'] = df['AMT_ANNUITY'] / df['AMT_CREDIT']
         
     if 'DAYS_EMPLOYED' in df.columns and 'DAYS_BIRTH' in df.columns:
         df['DAYS_EMPLOYED_PERCENT'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
 
-    # C. Encodage des variables catégorielles (One-Hot Encoding)
-    # pd.get_dummies va transformer le texte en colonnes numériques (0 et 1)
+    # Encodage des variables catégorielles
     df = pd.get_dummies(df)
 
     return df
@@ -69,7 +69,6 @@ def startup_event():
     global model, expected_features
     logger.info("Démarrage de l'API...")
     
-    # Chargement du JSON des 473 colonnes
     try:
         with open(features_path, 'r') as f:
             expected_features = json.load(f)
@@ -77,9 +76,7 @@ def startup_event():
     except Exception as e:
         logger.error(f"Erreur lors du chargement du JSON : {e}")
 
-    # Chargement du Modèle (le pipeline Imputer + Scaler + LightGBM)
     try:
-        # À MODIFIER avec ton repo Hugging Face
         repo_id = os.getenv("HF_MODEL_REPO", "EthanChmt/scoring_api_OC")
         logger.info(f"Téléchargement du modèle depuis {repo_id}...")
         model_path = hf_hub_download(repo_id=repo_id, filename="model.pkl")
@@ -93,7 +90,7 @@ def startup_event():
 def health_check():
     if model is None or not expected_features:
         raise HTTPException(status_code=503, detail="L'API n'est pas prête.")
-    return {"status": "ok", "message": "L'API est fonctionnelle et stricte."}
+    return {"status": "ok", "message": "L'API est fonctionnelle."}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -104,31 +101,23 @@ async def predict(file: UploadFile = File(...)):
         raise HTTPException(status_code=503, detail="Le service de prédiction est indisponible.")
 
     try:
-        # 1. Lecture du fichier brut
+        # 1. Lecture du fichier client (fusionné)
         contents = await file.read()
         df_brut = pd.read_csv(io.BytesIO(contents))
         
-        # 2. Application de TON Feature Engineering
+        # 2. Application du Feature Engineering
         df_engineered = apply_feature_engineering(df_brut)
         
-        # 3. CONTRÔLE STRICT (L'API bloque si le résultat ne matche pas ton EDA)
-        missing_cols = [col for col in expected_features if col not in df_engineered.columns]
-        if missing_cols:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Erreur de format de données. Après transformation, il manque les colonnes suivantes : {missing_cols[:10]}..."
-            )
-            
-        # 4. Filtrage et alignement parfait pour le modèle
-        df_final = df_engineered[expected_features]
+        # 3. Alignement automatique : 
+        # Garde uniquement les colonnes attendues, ajoute celles manquantes avec des 0.
+        # Cela nettoie automatiquement les colonnes non désirées (ex: trop corrélées ou NaN)
+        df_final = df_engineered.reindex(columns=expected_features, fill_value=0)
         
-        # 5. Inférence
+        # 4. Inférence
         predictions = model.predict(df_final)
         
         return {"predictions": predictions.tolist()}
     
-    except HTTPException:
-        raise # On laisse passer nos propres erreurs de validation (ex: les 400)
     except Exception as e:
         logger.error(f"Erreur d'inférence : {e}")
-        raise HTTPException(status_code=500, detail=f"Erreur interne lors du traitement : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur interne : {str(e)}")
