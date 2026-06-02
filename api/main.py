@@ -94,45 +94,39 @@ def health_check():
 
 @app.post("/predict")
 @app.post("/predict")
+@app.post("/predict")
+
 async def predict(file: UploadFile = File(...)):
-    # Vérification du format du fichier
     if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Veuillez fournir un fichier CSV.")
-    
-    # Vérification de la disponibilité du modèle
+        raise HTTPException(status_code=400, detail="Fichier CSV requis.")
+
     if model is None or not expected_features:
-        raise HTTPException(status_code=503, detail="Le service de prédiction est indisponible.")
+        raise HTTPException(status_code=503, detail="API indisponible.")
 
     try:
-        # Lecture du fichier
         contents = await file.read()
-        df_brut = pd.read_csv(io.BytesIO(contents))
         
-        # --- 1. SÉCURITÉ : Vérification des colonnes brutes indispensables ---
-        # Si une de ces colonnes manque, le ratio ne peut pas être calculé et le test pytest échoue.
+        # On force le séparateur virgule strict
+        df_brut = pd.read_csv(io.BytesIO(contents), sep=',')
+        
+        # Nettoyage de sécurité des en-têtes (supprime espaces et guillemets parasites)
+        df_brut.columns = df_brut.columns.str.strip().str.replace('"', '').str.replace("'", "")
+        
         colonnes_requises = ["AMT_INCOME_TOTAL", "AMT_CREDIT", "AMT_ANNUITY", "DAYS_BIRTH", "DAYS_EMPLOYED"]
         colonnes_manquantes = [col for col in colonnes_requises if col not in df_brut.columns]
         
         if colonnes_manquantes:
             raise HTTPException(
                 status_code=400,
-                detail=f"Fichier invalide. Il manque ces colonnes essentielles : {colonnes_manquantes}"
+                detail=f"Colonnes manquantes détectées : {colonnes_manquantes}"
             )
             
-        # --- 2. APPLICATION DU FEATURE ENGINEERING ---
         df_engineered = apply_feature_engineering(df_brut)
-        
-        # --- 3. ALIGNEMENT AUTOMATIQUE DES COLONNES ---
         df_final = df_engineered.reindex(columns=expected_features, fill_value=0)
         
-        # --- 4. PRÉDICTION ---
-        predictions = model.predict(df_final)
-        
-        return {"predictions": predictions.tolist()}
+        return {"predictions": model.predict(df_final).tolist()}
     
     except HTTPException:
-        # Permet de renvoyer proprement notre erreur 400 sans qu'elle devienne une erreur 500
         raise
     except Exception as e:
-        logger.error(f"Erreur d'inférence : {e}")
         raise HTTPException(status_code=500, detail=f"Erreur interne : {str(e)}")
