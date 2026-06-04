@@ -8,6 +8,8 @@ import numpy as np
 import joblib
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from huggingface_hub import hf_hub_download
+from datetime import datetime
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 
 # --- 1. CONFIGURATION SYSTEME ---
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
 features_path = os.path.join(base_dir, "expected_features.json")
+
+monitoring_dir = os.path.join(root_path, "monitoring")
+log_file = os.path.join(monitoring_dir, "logs.csv")
 
 # --- 2. INITIALISATION FASTAPI ---
 app = FastAPI(
@@ -63,6 +68,16 @@ def apply_feature_engineering(df):
 
     return df
 
+def log_predictions(df: pd.DataFrame, predictions: list):
+    os.makedirs(monitoring_dir, exist_ok=True)
+    
+    df_log = df.copy()
+    df_log["timestamp"] = datetime.utcnow().isoformat()
+    df_log["prediction"] = predictions
+    
+    file_exists = os.path.isfile(log_file)
+    df_log.to_csv(log_file, mode='a', index=False, header=not file_exists)
+
 # --- 4. CHARGEMENT AU DÉMARRAGE ---
 @app.on_event("startup")
 def startup_event():
@@ -93,10 +108,7 @@ def health_check():
     return {"status": "ok", "message": "L'API est fonctionnelle."}
 
 @app.post("/predict")
-@app.post("/predict")
-@app.post("/predict")
-
-async def predict(file: UploadFile = File(...)):
+async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Fichier CSV requis.")
 
@@ -124,7 +136,10 @@ async def predict(file: UploadFile = File(...)):
         df_engineered = apply_feature_engineering(df_brut)
         df_final = df_engineered.reindex(columns=expected_features, fill_value=0)
         
-        return {"predictions": model.predict(df_final).tolist()}
+        predictions = model.predict(df_final).tolist()
+        background_tasks.add_task(log_predictions, df_brut, predictions)
+        
+        return {"predictions": predictions}
     
     except HTTPException:
         raise
