@@ -10,6 +10,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from huggingface_hub import hf_hub_download
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, JSON
+from sqlalchemy.orm import sessionmaker, declarative_base
 
 # --- 1. CONFIGURATION SYSTEME ---
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -25,6 +27,30 @@ features_path = os.path.join(base_dir, "expected_features.json")
 
 monitoring_dir = os.path.join(root_path, "monitoring")
 log_file = os.path.join(monitoring_dir, "logs.csv")
+
+# --- 1.5 CONFIGURATION BASE DE DONNÉES ---
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+
+    class PredictionLog(Base):
+        __tablename__ = "prediction_logs"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        timestamp = Column(DateTime, default=datetime.utcnow)
+        input_data = Column(JSON)
+        prediction = Column(Float, nullable=True)
+        status = Column(String)
+
+    Base.metadata.create_all(bind=engine)
+else:
+    logger.warning("DATABASE_URL non définie. Les logs BDD seront désactivés.")
 
 # --- 2. INITIALISATION FASTAPI ---
 app = FastAPI(
@@ -68,15 +94,29 @@ def apply_feature_engineering(df):
 
     return df
 
-def log_predictions(df: pd.DataFrame, predictions: list):
-    os.makedirs(monitoring_dir, exist_ok=True)
-    
-    df_log = df.copy()
-    df_log["timestamp"] = datetime.utcnow().isoformat()
-    df_log["prediction"] = predictions
-    
-    file_exists = os.path.isfile(log_file)
-    df_log.to_csv(log_file, mode='a', index=False, header=not file_exists)
+def log_predictions(df: pd.DataFrame, predictions: list = None, status: str = "success"):
+    if not DATABASE_URL:
+        return
+
+    try:
+        db = SessionLocal()
+        df_clean = df.replace({np.nan: None})
+        data_dicts = df_clean.to_dict(orient="records")
+        
+        for i, row_data in enumerate(data_dicts):
+            pred = predictions[i] if predictions and i < len(predictions) else None
+            log_entry = PredictionLog(
+                input_data=row_data,
+                prediction=pred,
+                status=status
+            )
+            db.add(log_entry)
+            
+        db.commit()
+    except Exception as e:
+        logger.error(f"Erreur BDD : {e}")
+    finally:
+        db.close()
 
 # --- 4. CHARGEMENT AU DÉMARRAGE ---
 @app.on_event("startup")
@@ -128,6 +168,7 @@ async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...
         colonnes_manquantes = [col for col in colonnes_requises if col not in df_brut.columns]
         
         if colonnes_manquantes:
+            background_tasks.add_task(log_predictions, df_brut, None, "erreur_colonnes_manquantes")
             raise HTTPException(
                 status_code=400,
                 detail=f"Colonnes manquantes détectées : {colonnes_manquantes}"
@@ -137,7 +178,7 @@ async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...
         df_final = df_engineered.reindex(columns=expected_features, fill_value=0)
         
         predictions = model.predict(df_final).tolist()
-        background_tasks.add_task(log_predictions, df_brut, predictions)
+        background_tasks.add_task(log_predictions, df_brut, predictions, "success")
         
         return {"predictions": predictions}
     
