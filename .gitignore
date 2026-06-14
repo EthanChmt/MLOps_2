@@ -53,6 +53,7 @@ coverage.xml
 # Environments
 .env
 .venv
+.env
 
 # IDEs / Editors
 .vscode/
@@ -91,3 +92,10 @@ mlartifacts/
 # --- EXCEPTION CRITIQUE POUR L'API ---
 # On bloque les .pkl globaux, MAIS on force Git à accepter le modèle embarqué dans l'API
 *.pkl
+
+convert_onnx.py
+benchmark_production.py
+frontend/
+frontend/.
+profiler.py
+.onnx

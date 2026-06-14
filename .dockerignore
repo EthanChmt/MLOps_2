@@ -1,25 +1,67 @@
-# Git
+# ==========================================
+# EXCLUSIONS SPÉCIFIQUES DOCKER (Critiques)
+# ==========================================
 .git
+.git/
 .gitignore
+.dockerignore
+Dockerfile
+README.md
 
-# Environnements Python locaux
+# ==========================================
+# EXCLUSIONS ISSUES DE TON GITIGNORE
+# ==========================================
+
+# Scripts locaux de test
+convert_onnx.py
+benchmark_production.py
+profiler.py
+test_comparatif_model_onnx_pkl.py
+
+# Dossiers annexes
+Apprentissage/
+reports/
+frontend/
+
+# Environnements virtuels
 .venv
-venv
-env
-__pycache__
-*.pyc
-*.pyo
+.env
+venv/
+env/
 
-# Outils de développement
+# Cache Python et compilation
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDEs / OS
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 
-# Dossiers lourds ou inutiles pour la production
-mlruns/
-data/
-notebooks/
-reports/
-tests/
-
-# Fichiers de log locaux
+# Machine Learning / Data (On garde l'image légère)
+*.csv
+*.dat
+*.out
 *.log
+*.parquet
+*.hdf5
+*.h5
+*.pb
+*.onnx
+*.pkl
+data/
+datasets/
+models/
+
+# MLflow
+mlflow.db
+mlruns/
+mlartifacts/

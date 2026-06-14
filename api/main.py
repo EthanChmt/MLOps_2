@@ -3,15 +3,17 @@ import sys
 import io
 import json
 import logging
+import time
 import pandas as pd
 import numpy as np
 import joblib
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from huggingface_hub import hf_hub_download
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, JSON
 from sqlalchemy.orm import sessionmaker, declarative_base
+from huggingface_hub import hf_hub_download
+import onnxruntime as ort
+import numpy as np
 
 # --- 1. CONFIGURATION SYSTEME ---
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -47,6 +49,7 @@ if DATABASE_URL:
         input_data = Column(JSON)
         prediction = Column(Float, nullable=True)
         status = Column(String)
+        execution_time = Column(Float, nullable=True)
 
     Base.metadata.create_all(bind=engine)
 else:
@@ -63,12 +66,8 @@ expected_features = []
 
 # --- 3. LOGIQUE MÉTIER ---
 def apply_feature_engineering(df):
-    """
-    Applique les transformations exactes issues de l'Analyse Exploratoire.
-    """
     df = df.copy()
 
-    # Traitement des anomalies et âges
     if 'DAYS_EMPLOYED' in df.columns:
         df['DAYS_EMPLOYED_ANOM'] = (df['DAYS_EMPLOYED'] == 365243)
         df['DAYS_EMPLOYED'] = df['DAYS_EMPLOYED'].replace({365243: np.nan})
@@ -76,7 +75,6 @@ def apply_feature_engineering(df):
     if 'DAYS_BIRTH' in df.columns:
         df['DAYS_BIRTH_YEARS'] = df['DAYS_BIRTH'] / -365
 
-    # Création des nouvelles variables métiers
     if 'AMT_CREDIT' in df.columns and 'AMT_INCOME_TOTAL' in df.columns:
         df['CREDIT_INCOME_PERCENT'] = df['AMT_CREDIT'] / df['AMT_INCOME_TOTAL']
         
@@ -89,12 +87,11 @@ def apply_feature_engineering(df):
     if 'DAYS_EMPLOYED' in df.columns and 'DAYS_BIRTH' in df.columns:
         df['DAYS_EMPLOYED_PERCENT'] = df['DAYS_EMPLOYED'] / df['DAYS_BIRTH']
 
-    # Encodage des variables catégorielles
     df = pd.get_dummies(df)
 
     return df
 
-def log_predictions(df: pd.DataFrame, predictions: list = None, status: str = "success"):
+def log_predictions(df: pd.DataFrame, predictions: list = None, status: str = "success", exec_time: float = None):
     if not DATABASE_URL:
         return
 
@@ -108,7 +105,8 @@ def log_predictions(df: pd.DataFrame, predictions: list = None, status: str = "s
             log_entry = PredictionLog(
                 input_data=row_data,
                 prediction=pred,
-                status=status
+                status=status,
+                execution_time=exec_time
             )
             db.add(log_entry)
             
@@ -135,7 +133,8 @@ def startup_event():
         repo_id = os.getenv("HF_MODEL_REPO", "EthanChmt/scoring_api_OC")
         logger.info(f"Téléchargement du modèle depuis {repo_id}...")
         model_path = hf_hub_download(repo_id=repo_id, filename="model.pkl")
-        model = joblib.load(model_path)
+        #model = joblib.load(model_path)
+        model = ort.InferenceSession("model.onnx")
         logger.info("Modèle chargé en mémoire avec succès.")
     except Exception as e:
         logger.error(f"Erreur critique lors du chargement du modèle : {e}")
@@ -156,19 +155,18 @@ async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...
         raise HTTPException(status_code=503, detail="API indisponible.")
 
     try:
+        start_time = time.time()
         contents = await file.read()
         
-        # On force le séparateur virgule strict
         df_brut = pd.read_csv(io.BytesIO(contents), sep=',')
-        
-        # Nettoyage de sécurité des en-têtes (supprime espaces et guillemets parasites)
         df_brut.columns = df_brut.columns.str.strip().str.replace('"', '').str.replace("'", "")
         
         colonnes_requises = ["AMT_INCOME_TOTAL", "AMT_CREDIT", "AMT_ANNUITY", "DAYS_BIRTH", "DAYS_EMPLOYED"]
         colonnes_manquantes = [col for col in colonnes_requises if col not in df_brut.columns]
         
         if colonnes_manquantes:
-            background_tasks.add_task(log_predictions, df_brut, None, "erreur_colonnes_manquantes")
+            execution_duration = time.time() - start_time
+            background_tasks.add_task(log_predictions, df_brut, None, "erreur_colonnes_manquantes", execution_duration)
             raise HTTPException(
                 status_code=400,
                 detail=f"Colonnes manquantes détectées : {colonnes_manquantes}"
@@ -177,8 +175,13 @@ async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...
         df_engineered = apply_feature_engineering(df_brut)
         df_final = df_engineered.reindex(columns=expected_features, fill_value=0)
         
-        predictions = model.predict(df_final).tolist()
-        background_tasks.add_task(log_predictions, df_brut, predictions, "success")
+        #predictions = model.predict(df_final).tolist()
+        X = df_final.astype(np.float32).values
+        input_name = model.get_inputs()[0].name
+        predictions = model.run(None, {input_name: X})[0].tolist()
+
+        execution_duration = time.time() - start_time
+        background_tasks.add_task(log_predictions, df_brut, predictions, "success", execution_duration)
         
         return {"predictions": predictions}
     
