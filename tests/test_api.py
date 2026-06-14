@@ -9,11 +9,23 @@ from api.main import app
 import api.main as api_main
 
 # --- 1. MOCK DE L'ENVIRONNEMENT ---
-# On crée un faux modèle pour ne pas dépendre du vrai .pkl lourd pendant les tests
+# On crée une fausse entrée ONNX
+class DummyInput:
+    @property
+    def name(self):
+        return "float_input"
+
+# Le nouveau faux modèle qui parle couramment le langage ONNX
 class DummyModel:
-    def predict(self, df):
-        # Renvoie une probabilité de 0.5 pour chaque ligne
-        return np.full(len(df), 0.5)
+    def get_inputs(self):
+        return [DummyInput()]
+
+    def run(self, output_names, feed_dict):
+        # On simule le moteur ONNX : on récupère les données envoyées
+        X = list(feed_dict.values())[0]
+        # On renvoie un tableau Numpy de 0.5 (1 prédiction bidon par client)
+        predictions = np.full(len(X), 0.5)
+        return [predictions]
 
 # Cette fonction s'exécute automatiquement avant chaque test
 @pytest.fixture(autouse=True)
@@ -48,9 +60,9 @@ def test_predict_with_valid_csv():
         "/predict",
         files={"file": ("donnees_client.csv", file_like, "text/csv")}
     )
-
+    if response.status_code != 200:
+        print(f"\n🚨 DÉTAIL DU CRASH API : {response.text}")
     assert response.status_code == 200
-
 
 def test_predict_rejects_missing_columns():
     """Vérifie que l'API bloque strictement s'il manque des données pour l'EDA."""
@@ -64,7 +76,6 @@ def test_predict_rejects_missing_columns():
 
     assert response.status_code == 400
     assert "Colonnes manquantes détectées" in response.json()["detail"]
-
 
 def test_predict_rejects_invalid_file_type():
     """Vérifie le rejet des fichiers non-CSV."""
