@@ -5,8 +5,6 @@ import json
 import logging
 import time
 import pandas as pd
-import numpy as np
-import joblib
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, JSON
@@ -26,9 +24,6 @@ logger = logging.getLogger(__name__)
 
 base_dir = os.path.abspath(os.path.dirname(__file__))
 features_path = os.path.join(base_dir, "expected_features.json")
-
-monitoring_dir = os.path.join(root_path, "monitoring")
-log_file = os.path.join(monitoring_dir, "logs.csv")
 
 # --- 1.5 CONFIGURATION BASE DE DONNÉES ---
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -131,11 +126,21 @@ def startup_event():
 
     try:
         repo_id = os.getenv("HF_MODEL_REPO", "EthanChmt/scoring_api_OC")
-        logger.info(f"Téléchargement du modèle depuis {repo_id}...")
-        model_path = hf_hub_download(repo_id=repo_id, filename="model.pkl")
-        #model = joblib.load(model_path)
-        model = ort.InferenceSession("model.onnx")
-        logger.info("Modèle chargé en mémoire avec succès.")
+        model_filename = os.getenv("HF_MODEL_FILENAME", "model.onnx")
+
+        logger.info(f"Téléchargement du modèle ONNX depuis {repo_id}/{model_filename}...")
+
+        model_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=model_filename
+        )
+
+        model = ort.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"]
+        )
+
+        logger.info(f"Modèle ONNX chargé en mémoire depuis : {model_path}")
     except Exception as e:
         logger.error(f"Erreur critique lors du chargement du modèle : {e}")
 
@@ -178,7 +183,11 @@ async def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...
         #predictions = model.predict(df_final).tolist()
         X = df_final.astype(np.float32).values
         input_name = model.get_inputs()[0].name
-        predictions = model.run(None, {input_name: X})[0].tolist()
+
+        outputs = model.run(None, {input_name: X})
+        predictions = outputs[0].tolist()
+
+        
 
         execution_duration = time.time() - start_time
         background_tasks.add_task(log_predictions, df_brut, predictions, "success", execution_duration)
