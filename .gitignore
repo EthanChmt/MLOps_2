@@ -1,8 +1,8 @@
 Apprentissage/
 */Gradio.py
-reports/
 */figures
-
+reports/
+test_comparatif_model_onnx_pkl
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
