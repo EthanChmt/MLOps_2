@@ -87,7 +87,6 @@ Les mesures CPU et RAM donnent une indication utile, mais ne remplacent pas un m
 
 Les améliorations futures identifiées sont :
 
-- intégrer automatiquement la validation `.pkl` / ONNX dans la CI/CD ;
 - modulariser le fichier `api/main.py` ;
 - séparer les dépendances de production, de test et de profiling ;
 - enrichir le monitoring avec des métriques plus détaillées ;
